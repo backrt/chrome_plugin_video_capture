@@ -1,5 +1,8 @@
 # Microsoft Edge Add-ons 提交说明
 
+完整的五语言商店文案、隐私政策、审核说明、Logo、宣传图和截图位于
+`store-assets/edge/`。
+
 ## 生成提交包
 
 ```bash
