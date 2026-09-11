@@ -7,7 +7,9 @@
     const decodeBase64 =
       (options && options.decodeBase64) || g.base64ToBytes;
     if (typeof getDirectory !== "function" || typeof decodeBase64 !== "function") {
-      throw new Error("录制存储依赖无效");
+      throw new Error(
+        i18nMessage("invalidRecordingStore", "录制存储依赖无效")
+      );
     }
 
     let activeRecordingId = "";
@@ -57,6 +59,7 @@
         videoName: sanitizeFileBase(meta.videoName || ""),
         rangeStart: finiteRange(meta.rangeStart, 0),
         rangeEnd: finiteRange(meta.rangeEnd, 0),
+        recordedDurationSec: finiteRange(meta.recordedDurationSec, 0),
         opfsName,
         fileHandle,
         writable,
@@ -64,6 +67,10 @@
         bytes: 0,
         queue: Promise.resolve(),
         closed: false,
+        webmIndexer:
+          typeof g.createWebmClusterIndexer === "function"
+            ? g.createWebmClusterIndexer()
+            : null,
       };
       segments.set(segment.segmentId, segment);
       return publicSegment(segment);
@@ -85,17 +92,26 @@
         }
         if (envelope.sequence !== segment.nextSequence) {
           throw new Error(
-            `分片序号不连续：期望 ${segment.nextSequence}，收到 ${envelope.sequence}`
+            i18nMessage(
+              "chunkSequenceMismatch",
+              "分片序号不连续：期望 $1，收到 $2",
+              [segment.nextSequence, envelope.sequence]
+            )
           );
         }
         if (segment.closed || !segment.writable) {
-          throw new Error("录制分片已经关闭");
+          throw new Error(i18nMessage("recordingChunkClosed", "录制分片已经关闭"));
         }
         const bytes = decodeBase64(envelope.base64);
         if (!bytes || bytes.byteLength !== envelope.byteLength) {
-          throw new Error("录制分片长度不匹配");
+          throw new Error(
+            i18nMessage("recordingChunkLengthMismatch", "录制分片长度不匹配")
+          );
         }
         await segment.writable.write(bytes);
+        if (segment.webmIndexer && segment.mimeType.includes("webm")) {
+          segment.webmIndexer.push(bytes, segment.bytes);
+        }
         segment.bytes += bytes.byteLength;
         segment.nextSequence += 1;
         updateMeta(segment, envelope);
@@ -108,7 +124,7 @@
     async function flushFrame(recordingId, frameKey) {
       assertActive(recordingId);
       const key = String(frameKey || "");
-      if (!key) throw new Error("frame ID 无效");
+      if (!key) throw new Error(i18nMessage("invalidFrameId", "frame ID 无效"));
       const queues = [...segments.values()]
         .filter((segment) => segment.frameKey === key)
         .map((segment) => segment.queue);
@@ -174,7 +190,9 @@
     function assertActive(recordingId) {
       assertRecordingId(recordingId);
       if (!activeRecordingId || recordingId !== activeRecordingId) {
-        throw new Error("消息不是当前录制");
+        throw new Error(
+          i18nMessage("messageNotCurrentRecording", "消息不是当前录制")
+        );
       }
     }
 
@@ -190,7 +208,9 @@
   }
 
   function assertRecordingId(recordingId) {
-    if (!validateRecordingId(recordingId)) throw new Error("录制 ID 无效");
+    if (!validateRecordingId(recordingId)) {
+      throw new Error(i18nMessage("invalidRecordingId", "录制 ID 无效"));
+    }
   }
 
   function validateSegmentMeta(meta) {
@@ -201,12 +221,22 @@
       typeof meta.segmentId !== "string" ||
       !meta.segmentId.startsWith(`${meta.recordingId}:`)
     ) {
-      throw new Error("分组或分片 ID 无效");
+      throw new Error(
+        i18nMessage("invalidGroupOrSegmentId", "分组或分片 ID 无效")
+      );
     }
-    if (!String(meta.frameKey || "")) throw new Error("frame ID 无效");
-    for (const value of [meta.rangeStart, meta.rangeEnd]) {
+    if (!String(meta.frameKey || "")) {
+      throw new Error(i18nMessage("invalidFrameId", "frame ID 无效"));
+    }
+    for (const value of [
+      meta.rangeStart,
+      meta.rangeEnd,
+      meta.recordedDurationSec,
+    ]) {
       if (value !== undefined && (!Number.isFinite(value) || value < 0)) {
-        throw new Error("录制时间范围无效");
+        throw new Error(
+          i18nMessage("invalidRecordingRange", "录制时间范围无效")
+        );
       }
     }
   }
@@ -216,6 +246,9 @@
     if (meta.mimeType) segment.mimeType = String(meta.mimeType);
     if (Number.isFinite(meta.rangeStart)) segment.rangeStart = meta.rangeStart;
     if (Number.isFinite(meta.rangeEnd)) segment.rangeEnd = meta.rangeEnd;
+    if (Number.isFinite(meta.recordedDurationSec)) {
+      segment.recordedDurationSec = meta.recordedDurationSec;
+    }
   }
 
   function finiteRange(value, fallback) {
@@ -232,9 +265,14 @@
       videoName: segment.videoName,
       rangeStart: segment.rangeStart,
       rangeEnd: segment.rangeEnd,
+      recordedDurationSec: segment.recordedDurationSec,
       opfsName: segment.opfsName,
       bytes: segment.bytes,
       nextSequence: segment.nextSequence,
+      webmIndex:
+        segment.webmIndexer && segment.mimeType.includes("webm")
+          ? segment.webmIndexer.snapshot(segment.bytes)
+          : [],
     };
   }
 

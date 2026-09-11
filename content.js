@@ -5,6 +5,20 @@
   const PIPE = globalThis.PAGE_CHANNEL;
   const M = globalThis.MSG;
   const T = globalThis.TARGET;
+  const PAGE_I18N_FALLBACKS = {
+    alreadyRecording: "已在录制中",
+    noRecordableVideo: "当前页面没有可录制的视频",
+    foundVideosCannotCapture: "找到 $1 个视频，但无法捕获画面",
+    recordingSessionFull: "录制会话已满",
+    videoAlreadyRecording: "该视频已在录制中",
+    noSupportedFormat: "当前浏览器没有可用的录制格式",
+    noVideoTrack: "找到了视频，但没有可捕获的画面轨道（可能受保护）",
+    recorderInactive: "MediaRecorder 启动后仍是 inactive",
+    recorderStartFailed: "无法启动 MediaRecorder",
+    captureStreamUnsupported: "当前浏览器不支持 video.captureStream()",
+    captureNotAllowed: "当前视频不允许捕获（可能受保护）",
+    captureElementFailed: "无法从视频元素捕获",
+  };
 
   let pendingStart = null;
   let pendingStop = null;
@@ -64,21 +78,6 @@
       rememberProtocolTask(protocol && protocol.register(data));
       return;
     }
-    if (data.type === "PROGRESS") {
-      if (pendingStop && typeof pendingStop.heartbeat === "function") {
-        pendingStop.heartbeat(data.remainSec);
-      }
-      chrome.runtime
-        .sendMessage({
-          type: M.FILL_PROGRESS,
-          target: T.BACKGROUND,
-          recordingId,
-          message: data.message || "",
-          remainSec: data.remainSec || 0,
-        })
-        .catch(() => {});
-      return;
-    }
     if (data.type === "STARTED" && pendingStart) {
       pendingStart.resolve({
         ok: true,
@@ -104,7 +103,9 @@
       return;
     }
     if (data.type === "ERROR") {
-      const error = new Error(data.error || "页面录制失败");
+      const error = new Error(
+        data.error || i18nMessage("pageRecordingFailed", "页面录制失败")
+      );
       if (pendingStart) {
         pendingStart.reject(error);
         pendingStart = null;
@@ -122,7 +123,7 @@
     frameKey = String(message.frameKey ?? "");
     bridgeToken = String(message.bridgeToken || "");
     if (!validateRecordingId(recordingId) || !frameKey || !bridgeToken) {
-      throw new Error("录制桥接参数无效");
+      throw new Error(i18nMessage("invalidBridgeParams", "录制桥接参数无效"));
     }
     protocol = createFrameProtocol({
       recordingId,
@@ -145,7 +146,7 @@
 
   async function stopRecording(message) {
     if (!protocol || message.recordingId !== recordingId) {
-      throw new Error("录制会话已经失效");
+      throw new Error(i18nMessage("recordingSessionExpired", "录制会话已经失效"));
     }
     const stopped = waitForPage("stop");
     postToPage(M.STOP_RECORDING);
@@ -170,7 +171,7 @@
             type: M.RECORDING_FAILED,
             target: T.BACKGROUND,
             recordingId,
-            error: error.message || "停止失败",
+            error: error.message || i18nMessage("stopFailed", "停止失败"),
           })
           .catch(() => {});
       });
@@ -179,7 +180,11 @@
 
   function rememberProtocolTask(task) {
     if (!task || typeof task.catch !== "function") {
-      if (!protocolError) protocolError = new Error("录制写入协议未初始化");
+      if (!protocolError) {
+        protocolError = new Error(
+          i18nMessage("writeProtocolNotReady", "录制写入协议未初始化")
+        );
+      }
       return;
     }
     task.catch((error) => {
@@ -198,7 +203,9 @@
         timer = setTimeout(() => {
           reject(
             new Error(
-              kind === "start" ? "页面脚本没有开始录制" : "页面脚本没有停止录制"
+              kind === "start"
+                ? i18nMessage("pageStartTimeout", "页面脚本没有开始录制")
+                : i18nMessage("pageStopTimeout", "页面脚本没有停止录制")
             )
           );
         }, ms);
@@ -213,12 +220,6 @@
           clearTimeout(timer);
           reject(error);
         },
-        heartbeat: (remainSec) => {
-          const extra = Number.isFinite(remainSec)
-            ? remainSec * 1000 + 60000
-            : 120000;
-          arm(Math.min(Math.max(extra, 120000), 8 * 3600 * 1000));
-        },
       };
       if (kind === "start") pendingStart = wrap;
       else pendingStop = wrap;
@@ -232,8 +233,32 @@
         from: "isolated",
         type,
         bridgeToken,
+        localeMessages:
+          type === M.START_RECORDING ? resolvedPageMessages() : undefined,
       },
       "*"
+    );
+  }
+
+  function resolvedPageMessages() {
+    return Object.fromEntries(
+      Object.entries(PAGE_I18N_FALLBACKS).map(([key, fallback]) => {
+        const indexes = [...fallback.matchAll(/\$(\d+)/g)].map((match) =>
+          Number(match[1])
+        );
+        const markers = ["__VC_SUB_1__", "__VC_SUB_2__"].slice(
+          0,
+          indexes.length ? Math.max(...indexes) : 0
+        );
+        const translated = i18nMessage(key, fallback, markers);
+        return [
+          key,
+          markers.reduce(
+            (text, marker, index) => text.replaceAll(marker, `$${index + 1}`),
+            translated
+          ),
+        ];
+      })
     );
   }
 

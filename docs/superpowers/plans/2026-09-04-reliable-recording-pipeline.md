@@ -12,6 +12,8 @@
 
 **Execution status:** Tasks 1–5 implemented and verified with `npm run check` on 2026-09-04. The directory is not a Git repository, so no task commits were created. Manual Chrome acceptance remains pending.
 
+> **2026-09-10 amendment:** Automatic gap filling and its progress protocol were removed in v1.4.0. The extension now saves only ranges the user actually played. Historical gap-fill steps below no longer describe current behavior.
+
 ## Global Constraints
 
 - Minimum supported browser remains Chrome 116.

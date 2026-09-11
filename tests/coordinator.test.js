@@ -81,7 +81,7 @@ test("duplicate ready events do not duplicate completed frames", async () => {
   const event = {
     recordingId: "rec-12345678",
     frameId: 0,
-    errors: [{ code: "GAP_FILL_FAILED", message: "timeout" }],
+    errors: [{ code: "SEGMENT_FAILED", message: "write failed" }],
   };
   await coordinator.markReady(event);
   await coordinator.markReady(event);
@@ -110,24 +110,6 @@ test("events from a stale recording cannot mutate active state", async () => {
   assert.deepEqual((await storage.loadState()).pendingFrameIds, [0]);
 });
 
-test("heartbeat persists UI progress in the same state transition", async () => {
-  const storage = memoryState();
-  const coordinator = createRecordingCoordinator({
-    ...storage,
-    now: () => 1000,
-    timeoutMs: 120000,
-  });
-  await coordinator.begin({ recordingId: "rec-12345678", frameIds: [0] });
-  await coordinator.heartbeat({
-    recordingId: "rec-12345678",
-    frameId: 0,
-    patch: { fillHint: "正在补全", fillRemain: 12 },
-  });
-  const state = await storage.loadState();
-  assert.equal(state.fillHint, "正在补全");
-  assert.equal(state.fillRemain, 12);
-});
-
 test("ready event persists page errors without losing completion", async () => {
   const storage = memoryState();
   const coordinator = createRecordingCoordinator({
@@ -139,9 +121,9 @@ test("ready event persists page errors without losing completion", async () => {
   await coordinator.markReady({
     recordingId: "rec-12345678",
     frameId: 0,
-    errors: [{ code: "GAP_FILL_FAILED", message: "timeout", videoId: "v1" }],
+    errors: [{ code: "SEGMENT_FAILED", message: "write failed", videoId: "v1" }],
   });
   const state = await storage.loadState();
   assert.deepEqual(state.pendingFrameIds, []);
-  assert.equal(state.captureErrors[0].code, "GAP_FILL_FAILED");
+  assert.equal(state.captureErrors[0].code, "SEGMENT_FAILED");
 });

@@ -7,7 +7,7 @@
     const frameKey = String((options && options.frameKey) || "");
     const send = options && options.send;
     if (!validateRecordingId(recordingId) || !frameKey || typeof send !== "function") {
-      throw new Error("录制桥接参数无效");
+      throw new Error(i18nMessage("invalidBridgeParams", "录制桥接参数无效"));
     }
 
     let queue = Promise.resolve();
@@ -26,19 +26,28 @@
         mimeType: String(data.mimeType || ""),
         rangeStart: finiteRange(data.rangeStart),
         rangeEnd: finiteRange(data.rangeEnd),
+        recordedDurationSec: finiteRange(data.recordedDurationSec),
       });
     }
 
     function chunk(data) {
       const bytes = toBytes(data && data.buffer);
       if (!bytes || !bytes.byteLength) {
-        return Promise.reject(new Error("录制分片为空"));
+        return Promise.reject(
+          new Error(i18nMessage("emptyRecordingChunk", "录制分片为空"))
+        );
       }
       if (bytes.byteLength > MAX_CHUNK_BYTES) {
-        return Promise.reject(new Error("录制分片过大"));
+        return Promise.reject(
+          new Error(i18nMessage("recordingChunkTooLarge", "录制分片过大"))
+        );
       }
       if (queuedBytes + bytes.byteLength > MAX_QUEUED_BYTES) {
-        return Promise.reject(new Error("等待写入的录制数据过多"));
+        return Promise.reject(
+          new Error(
+            i18nMessage("tooMuchQueuedRecordingData", "等待写入的录制数据过多")
+          )
+        );
       }
       const ids = scopedIds(data);
       const sequence = sequences.get(ids.segmentId) || 0;
@@ -77,7 +86,10 @@
       const operation = queue.then(async () => {
         const response = await send(message);
         if (!response || response.ok === false) {
-          throw new Error((response && response.error) || "录制数据写入失败");
+          throw new Error(
+            (response && response.error) ||
+              i18nMessage("recordingWriteFailed", "录制数据写入失败")
+          );
         }
         return response;
       });
@@ -120,7 +132,9 @@
     if (!Array.isArray(errors)) return [];
     return errors.slice(0, 50).map((error) => ({
       code: String((error && error.code) || "CAPTURE_ERROR").slice(0, 64),
-      message: String((error && error.message) || "录制失败").slice(0, 500),
+      message: String(
+        (error && error.message) || i18nMessage("recordingFailed", "录制失败")
+      ).slice(0, 500),
       videoId: String((error && error.videoId) || "").slice(0, 128),
     }));
   }

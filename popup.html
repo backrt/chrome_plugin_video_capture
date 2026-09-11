@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>标签页录制</title>
+    <title data-i18n="appName">视频录制机</title>
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
@@ -11,9 +11,9 @@
       <header class="header">
         <div class="title-row">
           <span id="statusDot" class="dot idle" aria-hidden="true"></span>
-          <h1>标签页录制</h1>
+          <h1 data-i18n="appName">视频录制机</h1>
         </div>
-        <p id="statusText" class="status">未录制</p>
+        <p id="statusText" class="status" data-i18n="statusIdle">未录制</p>
       </header>
 
       <section class="timer-block">
@@ -21,25 +21,25 @@
         <p id="formatHint" class="hint" hidden></p>
       </section>
 
-      <button id="actionBtn" class="btn start" type="button">开始录制</button>
-      <button id="openFolderBtn" class="btn folder" type="button">打开下载目录</button>
+      <button id="actionBtn" class="btn start" type="button" data-i18n="startRecording">开始录制</button>
+      <button id="openFolderBtn" class="btn folder" type="button" data-i18n="openDownloadFolder">打开下载目录</button>
       <p id="resultText" class="result" aria-live="polite" hidden></p>
       <p id="errorText" class="error" hidden></p>
       <pre id="logText" class="logs" hidden></pre>
 
       <section id="legalNotice" class="legal" aria-labelledby="legalTitle">
-        <h2 id="legalTitle">使用须知</h2>
+        <h2 id="legalTitle" data-i18n="legalTitle">使用须知</h2>
         <ul>
-          <li>本扩展只录当前页面正在播放的画面和声音，不是下载原始片源，也不能绕过 DRM。</li>
-          <li>请仅录制你有权保存的内容，例如自己的素材、已获授权或公有领域内容。</li>
-          <li>请遵守著作权法和网站用户协议。未授权录制、保存或传播受版权保护的内容可能违法。</li>
-          <li>受版权保护或 DRM 保护的片源可能无法录制、黑屏或没有声音。</li>
+          <li data-i18n="legalPointCapture">本扩展只录当前页面正在播放的画面和声音，不是下载原始片源，也不能绕过 DRM。</li>
+          <li data-i18n="legalPointRights">请仅录制你有权保存的内容，例如自己的素材、已获授权或公有领域内容。</li>
+          <li data-i18n="legalPointCompliance">请遵守著作权法和网站用户协议。未授权录制、保存或传播受版权保护的内容可能违法。</li>
+          <li data-i18n="legalPointDrm">受版权保护或 DRM 保护的片源可能无法录制、黑屏或没有声音。</li>
         </ul>
         <label id="legalLabel" class="legal-accept" hidden>
           <input id="legalCheck" type="checkbox" />
-          <span>我已阅读以上须知，并确认只录制自己有权保存的内容。</span>
+          <span data-i18n="legalAccept">我已阅读以上须知，并确认只录制自己有权保存的内容。</span>
         </label>
-        <p class="legal-foot">本提示不构成法律意见。继续使用即表示你自行承担相应责任。</p>
+        <p class="legal-foot" data-i18n="legalFoot">本提示不构成法律意见。继续使用即表示你自行承担相应责任。</p>
       </section>
     </main>
     <script src="shared.js"></script>

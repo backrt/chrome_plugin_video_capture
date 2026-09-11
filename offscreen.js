@@ -58,7 +58,7 @@ async function createDownloadUrl(mimeType, opfsName) {
   const root = await navigator.storage.getDirectory();
   const handle = await root.getFileHandle(opfsName);
   const file = await handle.getFile();
-  if (!file.size) throw new Error("缓存文件为空");
+  if (!file.size) throw new Error(i18nMessage("cachedFileEmpty", "缓存文件为空"));
   const blob = new Blob([file], { type: mimeType || file.type || "video/webm" });
   objectUrl = URL.createObjectURL(blob);
   return { url: objectUrl, size: file.size };
@@ -66,31 +66,40 @@ async function createDownloadUrl(mimeType, opfsName) {
 
 async function mergeSegments(message) {
   const recordingId = String(message.recordingId || "");
-  if (!validateRecordingId(recordingId)) throw new Error("录制 ID 无效");
+  if (!validateRecordingId(recordingId)) {
+    throw new Error(i18nMessage("invalidRecordingId", "录制 ID 无效"));
+  }
   const parts = Array.isArray(message.parts) ? message.parts : [];
-  if (!parts.length) throw new Error("没有可拼接的片段");
+  if (!parts.length) {
+    throw new Error(i18nMessage("noSegmentsToMerge", "没有可拼接的片段"));
+  }
   const mimeType = String(message.mimeType || "");
   if (parts.length > 1 && !mimeType.includes("webm")) {
-    throw new Error("不支持拼接 MP4 分片");
+    throw new Error(i18nMessage("mp4MergeUnsupported", "不支持拼接 MP4 分片"));
   }
 
   const root = await navigator.storage.getDirectory();
-  const buffers = [];
+  const sources = [];
   for (const part of parts) {
     const handle = await root.getFileHandle(part.opfsName);
     const file = await handle.getFile();
     if (!file.size) continue;
-    buffers.push({
-      bytes: new Uint8Array(await file.arrayBuffer()),
-      durationSec: Math.max(
-        0,
-        Number(part.rangeEnd || 0) - Number(part.rangeStart || 0)
-      ),
+    sources.push({
+      file,
+      durationSec:
+        Number(part.recordedDurationSec) > 0
+          ? Number(part.recordedDurationSec)
+          : Math.max(
+              0,
+              Number(part.rangeEnd || 0) - Number(part.rangeStart || 0)
+            ),
+      webmIndex: Array.isArray(part.webmIndex) ? part.webmIndex : [],
     });
   }
-  if (!buffers.length) throw new Error("片段文件为空");
+  if (!sources.length) {
+    throw new Error(i18nMessage("segmentFileEmpty", "片段文件为空"));
+  }
 
-  const merged = buffers.length === 1 ? buffers[0].bytes : concatWebmParts(buffers);
   const outName = `merged-${safeIdPart(recordingId)}-${safeIdPart(
     message.groupId || "group",
     160
@@ -102,9 +111,19 @@ async function mergeSegments(message) {
   }
   const outHandle = await root.getFileHandle(outName, { create: true });
   const writable = await outHandle.createWritable();
-  await writable.write(merged);
-  await writable.close();
-  return { opfsName: outName, size: merged.byteLength };
+  try {
+    const result = await finalizeWebmFiles(sources, writable);
+    await writable.close();
+    return {
+      opfsName: outName,
+      size: result.size,
+      cueCount: result.cueCount,
+      durationUnits: result.durationUnits,
+    };
+  } catch (error) {
+    await writable.abort().catch(() => {});
+    throw error;
+  }
 }
 
 function revoke() {

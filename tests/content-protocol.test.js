@@ -59,6 +59,24 @@ test("identical page IDs in two frames become different extension IDs", async ()
   assert.equal(sent[0].bridgeToken, undefined);
 });
 
+test("recorded wall-clock duration is forwarded for accurate WebM timing", async () => {
+  const sent = [];
+  const protocol = createFrameProtocol(
+    options("0", async (message) => {
+      sent.push(message);
+      return { ok: true };
+    })
+  );
+
+  await protocol.register(
+    registration("g0", "v1", {
+      rangeEnd: 20,
+      recordedDurationSec: 10,
+    })
+  );
+  assert.equal(sent[0].recordedDurationSec, 10);
+});
+
 test("flush waits for registration and chunk acknowledgements", async () => {
   const calls = [];
   const registerGate = deferred();

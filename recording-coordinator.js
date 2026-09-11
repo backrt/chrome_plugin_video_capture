@@ -8,7 +8,9 @@
     const now = (options && options.now) || Date.now;
     const timeoutMs = Number(options && options.timeoutMs) || 120000;
     if (typeof loadState !== "function" || typeof saveState !== "function") {
-      throw new Error("录制协调器存储无效");
+      throw new Error(
+        i18nMessage("invalidCoordinatorStore", "录制协调器存储无效")
+      );
     }
 
     let transitionQueue = Promise.resolve();
@@ -27,7 +29,9 @@
     function begin(recording) {
       return transition(async (current) => {
         const recordingId = String(recording && recording.recordingId);
-        if (!validateRecordingId(recordingId)) throw new Error("录制 ID 无效");
+        if (!validateRecordingId(recordingId)) {
+          throw new Error(i18nMessage("invalidRecordingId", "录制 ID 无效"));
+        }
         const frameIds = [...new Set(recording.frameIds || [])]
           .map(Number)
           .filter(Number.isInteger);
@@ -67,7 +71,10 @@
             ...incoming.slice(0, 50).map((error) => ({
               frameId: Number(event.frameId),
               code: String((error && error.code) || "CAPTURE_ERROR").slice(0, 64),
-              message: String((error && error.message) || "录制失败").slice(0, 500),
+              message: String(
+                (error && error.message) ||
+                  i18nMessage("recordingFailed", "录制失败")
+              ).slice(0, 500),
               videoId: String((error && error.videoId) || "").slice(0, 128),
             })),
           ],
@@ -94,12 +101,6 @@
         if (!state.pendingFrameIds.includes(frameId)) return state;
         return {
           ...state,
-          ...(event.patch && typeof event.patch.fillHint === "string"
-            ? { fillHint: event.patch.fillHint.slice(0, 500) }
-            : {}),
-          ...(event.patch && Number.isFinite(event.patch.fillRemain)
-            ? { fillRemain: Math.max(0, event.patch.fillRemain) }
-            : {}),
           lastProgressAt: {
             ...(state.lastProgressAt || {}),
             [frameId]: now(),
@@ -127,7 +128,9 @@
 
     function assertActive(state, recordingId) {
       if (!state || state.recordingId !== recordingId) {
-        throw new Error("录制会话不匹配");
+        throw new Error(
+          i18nMessage("recordingSessionMismatch", "录制会话不匹配")
+        );
       }
     }
 

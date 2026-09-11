@@ -69,13 +69,6 @@ test("isRecordingFile matches only files for the selected recording", () => {
   assert.equal(isRecordingFile("merged-rec_2-group.bin", "rec_1"), false);
 });
 
-test("existing range helpers still find uncovered media", () => {
-  assert.deepEqual(findGaps([{ start: 1, end: 2 }], 0, 3), [
-    { start: 0, end: 1 },
-    { start: 2, end: 3 },
-  ]);
-});
-
 test("idleState carries an explicit terminal result and otherwise starts clean", () => {
   const partial = idleState("", {
     result: "partial",
@@ -86,6 +79,8 @@ test("idleState carries an explicit terminal result and otherwise starts clean",
   assert.equal(partial.failedFrames.length, 1);
   assert.equal(idleState().result, "");
   assert.deepEqual(idleState().failedFrames, []);
+  assert.equal("fillHint" in idleState(), false);
+  assert.equal("fillRemain" in idleState(), false);
 });
 
 test("terminalPresentation maps partial saves to a persistent warning", () => {

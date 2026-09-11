@@ -23,6 +23,7 @@
 
     if (data.type === M.START_RECORDING) {
       if (!data.bridgeToken) return;
+      globalThis.__vcI18nMessages = data.localeMessages || {};
       startRecording(data.bridgeToken)
         .then((result) => postToIsolated("STARTED", result))
         .catch((error) => {
@@ -58,7 +59,7 @@
   async function startRecording(nextBridgeToken) {
     if (running) {
       bridgeToken = nextBridgeToken;
-      throw new Error("已在录制中");
+      throw new Error(i18nMessage("alreadyRecording", "已在录制中"));
     }
     await resetAll();
     bridgeToken = nextBridgeToken;
@@ -66,7 +67,9 @@
     const videos = collectEligibleVideos();
     if (!videos.length) {
       running = false;
-      throw new Error("当前页面没有可录制的视频");
+      throw new Error(
+        i18nMessage("noRecordableVideo", "当前页面没有可录制的视频")
+      );
     }
 
     const started = [];
@@ -79,7 +82,12 @@
     if (!started.length) {
       running = false;
       throw new Error(
-        errors[0] || `找到 ${videos.length} 个视频，但无法捕获画面`
+        errors[0] ||
+          i18nMessage(
+            "foundVideosCannotCapture",
+            "找到 $1 个视频，但无法捕获画面",
+            videos.length
+          )
       );
     }
     watchNewVideos();
@@ -94,20 +102,26 @@
   async function attachSession(video, total) {
     lastAttachError = "";
     if (!running || sessions.size >= MAX_VIDEOS) {
-      lastAttachError = "录制会话已满";
+      lastAttachError = i18nMessage("recordingSessionFull", "录制会话已满");
       return null;
     }
     if (attached.has(video)) {
       const live = [...sessions.values()].some((item) => item.video === video);
       if (live) {
-        lastAttachError = "该视频已在录制中";
+        lastAttachError = i18nMessage(
+          "videoAlreadyRecording",
+          "该视频已在录制中"
+        );
         return null;
       }
       attached.delete(video);
     }
     const mimeType = pickMimeType();
     if (!mimeType) {
-      lastAttachError = "当前浏览器没有可用的录制格式";
+      lastAttachError = i18nMessage(
+        "noSupportedFormat",
+        "当前浏览器没有可用的录制格式"
+      );
       logPage("attach-failed", { error: lastAttachError });
       return null;
     }
@@ -123,7 +137,10 @@
     const videoTracks = stream.getVideoTracks();
     if (!videoTracks.length) {
       stream.getTracks().forEach((track) => track.stop());
-      lastAttachError = "找到了视频，但没有可捕获的画面轨道（可能受保护）";
+      lastAttachError = i18nMessage(
+        "noVideoTrack",
+        "找到了视频，但没有可捕获的画面轨道（可能受保护）"
+      );
       logPage("capture-failed", { error: lastAttachError });
       return null;
     }
@@ -147,13 +164,14 @@
       playHead: startTime,
       covered: [],
       isSeeking: false,
-      filling: false,
       waitingCovered: false,
       seekTimer: null,
       closing: false,
       startedAt: Date.now(),
       chunkCount: 0,
       byteCount: 0,
+      recordedMs: 0,
+      recordingStartedAt: null,
     };
     sessions.set(groupId, session);
     bindVideoEvents(session);
@@ -172,34 +190,32 @@
   function bindVideoEvents(session) {
     const video = session.video;
     video.addEventListener("play", () => {
-      if (!session.filling) resumeSession(session);
+      resumeSession(session);
     });
     video.addEventListener("playing", () => {
-      if (!session.filling) resumeSession(session);
+      resumeSession(session);
     });
     video.addEventListener("pause", () => {
-      if (!session.filling && !session.isSeeking) pauseSession(session);
+      if (!session.isSeeking) pauseSession(session);
     });
     video.addEventListener("ended", () => {
-      if (!session.filling) pauseSession(session);
+      pauseSession(session);
     });
     video.addEventListener("waiting", () => {
-      if (!session.filling && !session.isSeeking) pauseSession(session);
+      if (!session.isSeeking) pauseSession(session);
     });
     video.addEventListener("canplay", () => {
-      if (!session.filling && !video.paused && !video.ended) resumeSession(session);
+      if (!video.paused && !video.ended) resumeSession(session);
     });
     video.addEventListener("seeking", () => {
-      if (session.filling) return;
       session.isSeeking = true;
       pauseSession(session);
     });
     video.addEventListener("seeked", () => {
-      if (session.filling) return;
       onSeeked(session);
     });
     video.addEventListener("timeupdate", () => {
-      if (session.filling || session.isSeeking) return;
+      if (session.isSeeking) return;
       session.playHead = video.currentTime;
       if (session.waitingCovered && !rangeCovers(session.covered, video.currentTime)) {
         session.waitingCovered = false;
@@ -236,8 +252,11 @@
     session.playHead = session.rangeStart;
     session.chunkCount = 0;
     session.byteCount = 0;
+    session.recordedMs = 0;
+    session.recordingStartedAt = null;
     try {
       session.recorder = await createAndStartRecorder(session);
+      session.recordingStartedAt = performance.now();
       bindRecorder(session);
       logPage("segment-started", {
         groupId: session.groupId,
@@ -253,10 +272,9 @@
         rangeStart: session.rangeStart,
       });
       if (
-        !session.filling &&
-        (session.video.paused ||
-          session.video.ended ||
-          session.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA)
+        session.video.paused ||
+        session.video.ended ||
+        session.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
       ) {
         pauseSession(session);
       }
@@ -288,14 +306,22 @@
           const recorder = new MediaRecorder(stream, options);
           recorder.start(TIMESLICE_MS);
           if (recorder.state !== "inactive") return recorder;
-          lastError = new Error("MediaRecorder 启动后仍是 inactive");
+          lastError = new Error(
+            i18nMessage(
+              "recorderInactive",
+              "MediaRecorder 启动后仍是 inactive"
+            )
+          );
         } catch (error) {
           lastError = error;
         }
       }
       await delay(120);
     }
-    throw lastError || new Error("无法启动 MediaRecorder");
+    throw (
+      lastError ||
+      new Error(i18nMessage("recorderStartFailed", "无法启动 MediaRecorder"))
+    );
   }
 
   function openRecorderStream(session, recapture) {
@@ -384,7 +410,7 @@
     const to = session.video.currentTime;
     session.isSeeking = false;
     session.playHead = to;
-    if (!running || session.filling || session.closing) return;
+    if (!running || session.closing) return;
     clearSeekTimer(session);
     session.seekTimer = setTimeout(() => {
       session.seekTimer = null;
@@ -393,7 +419,7 @@
   }
 
   async function settleSeek(session, from, to) {
-    if (!running || session.filling) return;
+    if (!running) return;
     const jump = Number.isFinite(from) && Number.isFinite(to) ? Math.abs(to - from) : 0;
     if (jump < SEEK_SPLIT_SECONDS) {
       if (!session.video.paused && !session.video.ended) resumeSession(session);
@@ -430,11 +456,12 @@
         mimeType: session.mimeType,
         rangeStart: start,
         rangeEnd: end,
+        recordedDurationSec: currentRecordedDurationSec(session),
       });
       await stopRecorderOnly(session);
       if (
         end - start >= MIN_RANGE_SECONDS &&
-        (session.byteCount >= MIN_SAVE_BYTES || session.filling)
+        session.byteCount >= MIN_SAVE_BYTES
       ) {
         session.covered = mergeRanges(session.covered, start, end);
         logPage("segment-closed", { start, end, bytes: session.byteCount });
@@ -453,6 +480,7 @@
       return;
     }
     if (recorder.state === "inactive") {
+      finishActivePeriod(session);
       await drainChunkReads();
       session.recorder = null;
       releaseRecordStream(session);
@@ -461,6 +489,7 @@
     await new Promise((resolve) => {
       recorder.addEventListener("stop", resolve, { once: true });
       try {
+        finishActivePeriod(session);
         if (recorder.state === "paused") {
           recorder.resume();
         }
@@ -481,6 +510,7 @@
     if (!session.recorder || session.recorder.state !== "paused") return;
     try {
       session.recorder.resume();
+      session.recordingStartedAt = performance.now();
     } catch {
       // Ignore.
     }
@@ -490,9 +520,23 @@
     if (!session.recorder || session.recorder.state !== "recording") return;
     try {
       session.recorder.pause();
+      finishActivePeriod(session);
     } catch {
       // Ignore.
     }
+  }
+
+  function finishActivePeriod(session) {
+    if (session.recordingStartedAt === null) return;
+    session.recordedMs += Math.max(0, performance.now() - session.recordingStartedAt);
+    session.recordingStartedAt = null;
+  }
+
+  function currentRecordedDurationSec(session) {
+    const activeMs = session.recordingStartedAt !== null
+      ? Math.max(0, performance.now() - session.recordingStartedAt)
+      : 0;
+    return (session.recordedMs + activeMs) / 1000;
   }
 
   function clearSeekTimer(session) {
@@ -574,16 +618,29 @@
   function captureElementStream(element) {
     const capture = element.captureStream || element.mozCaptureStream;
     if (typeof capture !== "function") {
-      throw new Error("当前浏览器不支持 video.captureStream()");
+      throw new Error(
+        i18nMessage(
+          "captureStreamUnsupported",
+          "当前浏览器不支持 video.captureStream()"
+        )
+      );
     }
     try {
       return capture.call(element);
     } catch (error) {
       const name = error && error.name;
       if (name === "SecurityError" || name === "NotSupportedError") {
-        throw new Error("当前视频不允许捕获（可能受保护）");
+        throw new Error(
+          i18nMessage(
+            "captureNotAllowed",
+            "当前视频不允许捕获（可能受保护）"
+          )
+        );
       }
-      throw new Error(error.message || "无法从视频元素捕获");
+      throw new Error(
+        error.message ||
+          i18nMessage("captureElementFailed", "无法从视频元素捕获")
+      );
     }
   }
 
@@ -605,13 +662,6 @@
     const list = [...sessions.values()];
     for (const session of list) {
       await closeCurrentSegment(session);
-    }
-    const errors = [];
-    if (reason === "user") {
-      for (const session of list) {
-        const error = await fillGapsForSession(session);
-        if (error) errors.push(error);
-      }
     }
     for (const session of list) {
       releaseRecordStream(session);
@@ -638,74 +688,8 @@
       videos,
       mimeType: videos[0] && videos[0].mimeType,
       byteCount: videos.reduce((sum, item) => sum + item.byteCount, 0),
-      errors,
+      errors: [],
     };
-  }
-
-  async function fillGapsForSession(session) {
-    const duration = session.video && session.video.duration;
-    if (!Number.isFinite(duration) || duration < 1) {
-      logPage("skip-gap-fill", { reason: "no-duration" });
-      return null;
-    }
-    const gaps = findGaps(session.covered, 0, duration);
-    if (!gaps.length) {
-      logPage("gap-fill-skip", { reason: "complete" });
-      return null;
-    }
-    session.filling = true;
-    const remain = gaps.reduce((sum, item) => sum + (item.end - item.start), 0);
-    postToIsolated("PROGRESS", {
-      message: `正在补全未观看部分，大约还需要 ${formatDuration(remain * 1000)}，请勿关闭页面`,
-      remainSec: remain,
-    });
-    logPage("gap-fill-start", { gaps: gaps.length, remain });
-    const original = {
-      currentTime: session.video.currentTime,
-      paused: session.video.paused,
-      volume: session.video.volume,
-      playbackRate: session.video.playbackRate,
-    };
-    let failure = null;
-    try {
-      for (let i = 0; i < gaps.length; i += 1) {
-        const gap = gaps[i];
-        const left = gaps.slice(i).reduce((sum, item) => sum + (item.end - item.start), 0);
-        postToIsolated("PROGRESS", {
-          message: `正在补全第 ${i + 1}/${gaps.length} 段，大约还需要 ${formatDuration(left * 1000)}`,
-          remainSec: left,
-        });
-        await playThrough(session.video, gap.start, gap.end, false);
-        await beginRecording(session, gap.start);
-        await playThrough(session.video, session.video.currentTime, gap.end, true);
-        await closeCurrentSegment(session);
-      }
-    } catch (error) {
-      logPage("gap-fill-failed", { error: error.message || String(error) });
-      failure = {
-        code: "GAP_FILL_FAILED",
-        message: error.message || String(error),
-        videoId: session.videoId,
-      };
-    } finally {
-      try {
-        session.video.pause();
-        session.video.volume = original.volume;
-        session.video.playbackRate = original.playbackRate;
-        await seekTo(session.video, original.currentTime);
-        if (!original.paused) await session.video.play();
-      } catch (error) {
-        if (!failure) {
-          failure = {
-            code: "PLAYBACK_RESTORE_FAILED",
-            message: error.message || String(error),
-            videoId: session.videoId,
-          };
-        }
-      }
-      session.filling = false;
-    }
-    return failure;
   }
 
   async function drainChunkReads() {
@@ -719,44 +703,6 @@
     }
   }
 
-  async function playThrough(video, start, end, skipSeek) {
-    if (!skipSeek) {
-      await seekTo(video, start);
-      try {
-        await video.play();
-      } catch {
-        // Autoplay may be blocked; keep waiting on currentTime anyway.
-      }
-      return;
-    }
-    const deadline = Date.now() + Math.max(8000, (end - start) * 1000 + 20000);
-    while (Date.now() < deadline) {
-      if (video.ended) return;
-      if (Number.isFinite(video.currentTime) && video.currentTime >= end - 0.12) return;
-      await delay(200);
-    }
-    throw new Error("补全视频超时");
-  }
-
-  function seekTo(video, time) {
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = () => {
-        if (done) return;
-        done = true;
-        video.removeEventListener("seeked", finish);
-        resolve();
-      };
-      video.addEventListener("seeked", finish);
-      try {
-        video.currentTime = time;
-      } catch {
-        finish();
-        return;
-      }
-      setTimeout(finish, 2500);
-    });
-  }
 
   async function resetAll() {
     running = false;

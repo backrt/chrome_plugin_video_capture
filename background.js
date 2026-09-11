@@ -70,8 +70,6 @@ async function handleBackgroundMessage(message, sender) {
       return onFrameReady(message, sender);
     case MSG.RECORDING_FAILED:
       return onFrameFailed(message, sender);
-    case MSG.FILL_PROGRESS:
-      return onFillProgress(message, sender);
     default:
       return undefined;
   }
@@ -80,9 +78,13 @@ async function handleBackgroundMessage(message, sender) {
 async function startRecording(tabId) {
   const current = await getState();
   if (current.status === STATUS.RECORDING || current.status === STATUS.STOPPING) {
-    throw new Error("已在录制中，请先停止");
+    throw new Error(
+      i18nMessage("alreadyRecordingStopFirst", "已在录制中，请先停止")
+    );
   }
-  if (!tabId) throw new Error("找不到当前标签页");
+  if (!tabId) {
+    throw new Error(i18nMessage("activeTabMissing", "找不到当前标签页"));
+  }
 
   await chrome.storage.session.set({ [DEBUG_LOG_KEY]: [] });
   const recordingId = crypto.randomUUID();
@@ -109,7 +111,9 @@ async function startRecording(tabId) {
         startedFrameIds.push(frameId);
         startedVideos.push(...result.videos);
       } else {
-        const error = (result && result.error) || "页面没有返回可录制会话";
+        const error =
+          (result && result.error) ||
+          i18nMessage("pageSessionMissing", "页面没有返回可录制会话");
         startWarnings.push({ frameId, code: "FRAME_START_FAILED", message: error });
         await debugLog("sw", "frame-start-failed", { frameId, error });
       }
@@ -122,7 +126,10 @@ async function startRecording(tabId) {
 
   if (!startedVideos.length) {
     await requireOffscreen({ type: MSG.CLEANUP_RECORDING, recordingId }).catch(() => {});
-    throw new Error(startWarnings[0]?.message || "找到了视频，但无法开始录制");
+    throw new Error(
+      startWarnings[0]?.message ||
+        i18nMessage("videoFoundStartFailed", "找到了视频，但无法开始录制")
+    );
   }
 
   const next = await coordinator.begin({
@@ -149,12 +156,13 @@ async function startRecording(tabId) {
 async function stopRecording() {
   let state = await getState();
   if (state.status !== STATUS.RECORDING) {
-    throw new Error("当前没有进行中的录制");
+    throw new Error(
+      i18nMessage("noActiveRecording", "当前没有进行中的录制")
+    );
   }
   state = {
     ...state,
     status: STATUS.STOPPING,
-    fillHint: "正在按时间轴补全完整视频，请勿关闭页面",
     finalizing: false,
   };
   await setState(state);
@@ -183,29 +191,6 @@ async function stopRecording() {
     })
   );
   await maybeFinalize(state.recordingId);
-  return { ok: true };
-}
-
-async function onFillProgress(message, sender) {
-  const frameId = senderFrameId(sender);
-  const state = await getState();
-  if (
-    state.status !== STATUS.STOPPING ||
-    message.recordingId !== state.recordingId ||
-    !Number.isInteger(frameId)
-  ) {
-    return { ok: false, ignored: true };
-  }
-  const next = await coordinator.heartbeat({
-    recordingId: state.recordingId,
-    frameId,
-    patch: {
-      fillHint: message.message || "正在补全完整视频，请勿关闭页面",
-      fillRemain: Number(message.remainSec) || 0,
-    },
-  });
-  await scheduleFrameTimeout(next);
-  await broadcastState(next);
   return { ok: true };
 }
 
@@ -239,7 +224,8 @@ async function onFrameFailed(message, sender) {
   }
   await markFrameFailed(state.recordingId, frameId, {
     code: "FRAME_RECORDING_FAILED",
-    message: message.error || "frame 录制失败",
+    message:
+      message.error || i18nMessage("frameRecordingFailed", "frame 录制失败"),
   });
   await maybeFinalize(state.recordingId);
   return { ok: true };
@@ -271,7 +257,7 @@ async function handleFrameTimeout(recordingId) {
   for (const frameId of expired) {
     await markFrameFailed(recordingId, frameId, {
       code: "FRAME_TIMEOUT",
-      message: "frame 停止录制超时",
+      message: i18nMessage("frameStopTimeout", "frame 停止录制超时"),
     });
   }
   await maybeFinalize(recordingId);
@@ -287,13 +273,13 @@ async function handleTabRemoved(tabId) {
     return;
   }
   if (state.status === STATUS.RECORDING) {
-    state = { ...state, status: STATUS.STOPPING, fillHint: "标签页已关闭，正在保存已有内容" };
+    state = { ...state, status: STATUS.STOPPING };
     await setState(state);
   }
   for (const frameId of state.pendingFrameIds || []) {
     await markFrameFailed(state.recordingId, frameId, {
       code: "TAB_CLOSED",
-      message: "标签页已关闭",
+      message: i18nMessage("tabClosed", "标签页已关闭"),
     });
   }
   await maybeFinalize(state.recordingId);
@@ -322,7 +308,6 @@ async function runFinalizeAndDownload(recordingId) {
     ...state,
     status: STATUS.STOPPING,
     finalizing: true,
-    fillHint: "正在拼接并保存视频",
   };
   await setState(state);
   await broadcastState(state);
@@ -363,10 +348,15 @@ async function runFinalizeAndDownload(recordingId) {
   const result = savedCount > 0 ? (errors.length ? "partial" : "success") : "failure";
   const resultMessage =
     result === "success"
-      ? `已保存 ${savedCount} 个视频`
+      ? i18nMessage("savedVideoCount", "已保存 $1 个视频", savedCount)
       : result === "partial"
-        ? `已保存 ${savedCount} 个视频，但有 ${errors.length} 项未完成`
-        : errors[0]?.message || "没有可保存的录制内容";
+        ? i18nMessage(
+            "partialSavedVideoCount",
+            "已保存 $1 个视频，但有 $2 项未完成",
+            [savedCount, errors.length]
+          )
+        : errors[0]?.message ||
+          i18nMessage("noSavableRecording", "没有可保存的录制内容");
   await finishIdle(result === "failure" ? resultMessage : "", {
     result,
     resultMessage,
@@ -378,7 +368,12 @@ async function runFinalizeAndDownload(recordingId) {
 
 async function downloadAllGroups(state, groups) {
   if (!chrome.downloads || typeof chrome.downloads.download !== "function") {
-    throw new Error("下载接口不可用，请重新加载扩展后重试");
+    throw new Error(
+      i18nMessage(
+        "downloadApiUnavailable",
+        "下载接口不可用，请重新加载扩展后重试"
+      )
+    );
   }
   const stampDate = new Date();
   const usedNames = new Set();
@@ -390,7 +385,10 @@ async function downloadAllGroups(state, groups) {
   for (const group of groups) {
     const usable = selectUsableSegments(group, MIN_SAVE_BYTES);
     if (!usable.length) {
-      errors.push({ code: "SMALL_FILE", message: "录制片段过小，已跳过" });
+      errors.push({
+        code: "SMALL_FILE",
+        message: i18nMessage("recordingTooSmall", "录制片段过小，已跳过"),
+      });
       continue;
     }
     const groupId = usable[0].groupId;
@@ -399,7 +397,12 @@ async function downloadAllGroups(state, groups) {
     index += 1;
     try {
       let opfsName = usable[0].opfsName;
-      if (usable.length > 1) {
+      if (usable.length > 1 && !mimeType.includes("webm")) {
+        throw new Error(
+          i18nMessage("mp4MergeUnsupported", "不支持拼接 MP4 分片")
+        );
+      }
+      if (mimeType.includes("webm")) {
         const merged = await requireOffscreen({
           type: MSG.MERGE_SEGMENTS,
           recordingId: state.recordingId,
@@ -409,6 +412,8 @@ async function downloadAllGroups(state, groups) {
             opfsName: item.opfsName,
             rangeStart: item.rangeStart,
             rangeEnd: item.rangeEnd,
+            recordedDurationSec: item.recordedDurationSec,
+            webmIndex: item.webmIndex || [],
           })),
         });
         opfsName = merged.opfsName;
@@ -423,11 +428,20 @@ async function downloadAllGroups(state, groups) {
         filename: buildFilename(mimeType, stampDate, name),
         saveAs: false,
       });
-      if (!Number.isInteger(downloadId)) throw new Error("下载任务创建失败");
+      if (!Number.isInteger(downloadId)) {
+        throw new Error(
+          i18nMessage("downloadTaskCreationFailed", "下载任务创建失败")
+        );
+      }
       const saved = await waitForDownload(downloadId);
       await sendToExistingOffscreen({ type: MSG.REVOKE_DOWNLOAD_URL }).catch(() => {});
       if (!saved || saved.state !== "complete" || saved.exists === false) {
-        throw new Error("下载未完成，磁盘上没有保存到文件");
+        throw new Error(
+          i18nMessage(
+            "downloadNotCompleted",
+            "下载未完成，磁盘上没有保存到文件"
+          )
+        );
       }
       savedCount += 1;
       lastDownloadId = downloadId;
@@ -500,7 +514,11 @@ async function findVideoFrames(tabId) {
   const frameIds = injections
     .filter((item) => item.result > 0)
     .map((item) => item.frameId);
-  if (!frameIds.length) throw new Error("当前页面没有可录制的视频");
+  if (!frameIds.length) {
+    throw new Error(
+      i18nMessage("noRecordableVideo", "当前页面没有可录制的视频")
+    );
+  }
   return frameIds;
 }
 
@@ -586,7 +604,10 @@ async function requireOffscreen(payload) {
     target: TARGET.OFFSCREEN,
   });
   if (!response || response.ok === false) {
-    throw new Error((response && response.error) || "Offscreen 操作失败");
+    throw new Error(
+      (response && response.error) ||
+        i18nMessage("offscreenOperationFailed", "Offscreen 操作失败")
+    );
   }
   return response;
 }

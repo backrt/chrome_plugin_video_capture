@@ -1,7 +1,9 @@
 # Reliable Recording Pipeline Design
 
 **Date:** 2026-09-04
-**Status:** Implemented — automated verification passed; manual Chrome acceptance pending
+**Status:** Implemented, amended 2026-09-10 — automatic gap filling removed; manual Chrome acceptance pending
+
+> **2026-09-10 amendment:** The extension records only media ranges the user actually plays. Stop/finalize never seeks, starts playback, or fills unplayed ranges. Any earlier gap-fill requirements below are superseded by this amendment.
 
 ## Goal
 
@@ -15,7 +17,7 @@ The extension continues to:
 - record video and available audio through `HTMLMediaElement.captureStream()` and `MediaRecorder`;
 - support videos in the main document, child frames, and open shadow roots;
 - split recordings when the viewer seeks and merge the resulting WebM segments;
-- fill finite-duration gaps after the user selects “停止并保存”;
+- save only ranges actually played by the user;
 - save files through `chrome.downloads` without a remote server or runtime dependency.
 
 The redesign does not attempt to bypass DRM, protected cross-origin media, browser capture restrictions, or autoplay restrictions. It does not introduce tab capture, cloud storage, transcoding, or a new UI framework.
@@ -29,9 +31,11 @@ The responsibilities are:
 - `popup.js`: user actions and state rendering only.
 - `background.js`: create recording IDs, inject scripts, coordinate frames, track durable high-level state in `chrome.storage.session`, enforce stop timeouts, request finalization, and start downloads.
 - `content.js`: bridge the page world to extension contexts, namespace local IDs, serialize metadata and chunk writes, validate payloads, and await durable acknowledgements.
-- `page-recorder.js`: capture media, track viewed ranges, fill gaps, wait for pending Blob reads, and restore the page video's state.
-- `offscreen.js`: own OPFS writers and session metadata, acknowledge writes only after completion, close writers on flush, merge segments, create download URLs, and delete temporary files.
+- `page-recorder.js`: capture media, track played ranges, and wait for pending Blob reads without changing playback state during stop.
+- `offscreen.js`: own OPFS writers and session metadata, acknowledge writes only after completion, close writers on flush, finalize seekable WebM files, create download URLs, and delete temporary files.
 - `shared.js`: protocol constants and pure validation/range/ID helpers.
+
+User-facing copy is resolved through Chrome's native `chrome.i18n` catalogs. Simplified Chinese is the default locale, with Traditional Chinese, English, Japanese, and Korean catalogs kept key-compatible by tests. Because the page main world cannot call extension APIs, the isolated content script resolves the page-recorder message set and passes it with the authenticated start command.
 
 ## Recording Identity
 
@@ -83,6 +87,8 @@ Each `WRITE_CHUNK` contains:
 }
 ```
 
+Final segment metadata carries the recorder's active wall-clock duration, excluding pauses. The WebM finalizer uses it for `Duration` and cross-segment timecode offsets, so playback-rate changes do not stretch or compress the generated timeline.
+
 The content script uses one promise queue per frame. Registration and chunks enter the same queue, so registration cannot overtake a chunk and final metadata cannot be overtaken by `FLUSH_FRAME`.
 
 The Offscreen Document keeps the next expected sequence for each segment. It accepts exactly the expected number, treats an already-committed lower number as an idempotent retry, and rejects gaps or conflicting duplicates. A write response is sent only after `FileSystemWritableFileStream.write()` resolves.
@@ -95,7 +101,7 @@ The page posts `STOPPED` only after:
 
 1. every active recorder has stopped;
 2. every final Blob has been converted and posted to the isolated world;
-3. gap-fill work has completed or produced an explicit error result.
+3. no pending page-to-extension chunk transfer remains.
 
 The content script then waits for its ordered extension-message queue, sends `FLUSH_FRAME`, and finally sends `RECORDING_READY` to the service worker.
 
@@ -115,7 +121,6 @@ High-level state in `chrome.storage.session` includes:
   startTime,
   mimeType,
   videoCount,
-  fillHint,
   error
 }
 ```
@@ -132,8 +137,7 @@ When stopping:
 
 - the service worker asks every started frame to stop;
 - a frame that cannot receive the stop request is immediately marked failed;
-- responsive frames may continue gap filling;
-- progress heartbeats extend that frame's deadline;
+- responsive frames drain their final Blob reads and ordered write queues;
 - a frame without progress or completion for 120 seconds is marked timed out;
 - once no frames remain pending, the worker finalizes all successfully flushed data.
 
@@ -141,19 +145,9 @@ Deadlines are enforced with one-shot `chrome.alarms` entries so timeout processi
 
 If at least one valid output exists, it is downloaded and the popup reports that the recording was partially saved, including the number of failed frames. If no valid output exists, the operation fails without claiming a successful save.
 
-## Gap Fill and Page Restoration
+## No Playback Mutation During Stop
 
-Before modifying a video for gap fill, the page recorder stores:
-
-- `currentTime`;
-- `paused` state;
-- `muted` state;
-- `volume`;
-- `playbackRate`.
-
-These values are restored in a `finally` block. A video that was paused remains paused. A video that was playing is resumed only when `play()` succeeds.
-
-Gap-fill failures are collected per video and returned through `STOPPED`; they are not reduced to debug logs. Successfully captured ranges remain downloadable, but the result is marked partial. Gap filling remains real-time and the UI continues to show the estimated remaining media duration.
+Stopping a recording never seeks the page video, starts playback, changes volume or playback rate, or changes the muted state. Only ranges actually played by the user are saved. Paused time and seek-skipped ranges are absent from the output.
 
 ## Validation and Trust Boundary
 
@@ -181,7 +175,7 @@ Cleanup occurs after every successful download, after a terminal failure, at the
 
 ## WebM and Format Handling
 
-Segment merging remains WebM-specific. The recorder prefers VP9/Opus, VP8/Opus, then generic WebM. MP4 may be used only when a recording has one segment; a multi-segment MP4 recording fails with an explicit unsupported-merge message rather than being passed to the WebM parser.
+Segment merging remains WebM-specific. The recorder prefers VP9/Opus, VP8/Opus, then generic WebM. MP4 may be used only when a recording has one segment; a multi-segment MP4 recording fails with an explicit unsupported-merge message rather than being passed to the WebM parser. Every WebM output, including a single segment, passes through the Offscreen finalizer. The writer records Cluster offsets while chunks arrive, streams one Cluster at a time into the result, writes `Duration` and `Cues`, and links the trailing cues through `SeekHead` without re-encoding media.
 
 The WebM concatenator receives segments already sorted by `rangeStart`. Invalid or overlapping ranges are rejected before merge. Small files are reported as discarded instead of silently disappearing.
 
@@ -192,7 +186,7 @@ Errors are represented as structured records containing `code`, `message`, `fram
 Terminal outcomes are:
 
 - `success`: all started frames flushed and all valid groups downloaded;
-- `partial`: at least one output downloaded, with one or more frame, video, gap-fill, merge, or small-file failures;
+- `partial`: at least one output downloaded, with one or more frame, video, merge, or small-file failures;
 - `failure`: no output downloaded.
 
 The popup keeps the last terminal result until the next start request, so reopening the popup does not erase a partial-result warning.
@@ -206,7 +200,7 @@ Pure unit tests cover:
 - global ID namespacing across frames;
 - ordered sequence acceptance, duplicate retries, and gap rejection;
 - frame readiness updates and timeout transitions;
-- range merging and gap detection;
+- played-range merging and overlap detection;
 - file cleanup name matching;
 - protocol payload validation;
 - WebM concatenation using small binary fixtures.
@@ -222,8 +216,8 @@ Manual Chrome acceptance covers:
 5. videos in two iframes with identical local IDs;
 6. iframe removal during stop;
 7. a dynamically inserted video;
-8. a finite video requiring gap fill;
-9. a live or infinite-duration video;
+8. seek-skipped ranges are absent from the output;
+9. stopping does not mutate the page video's playback state;
 10. protected media failure;
 11. repeated multi-segment recordings with OPFS usage checked after cleanup.
 

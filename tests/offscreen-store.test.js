@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 require("../shared.js");
+require("../webm-concat.js");
 require("../offscreen-store.js");
 
 function deferred() {
@@ -126,7 +127,9 @@ test("finalize closes writers and returns serializable groups", async () => {
   await store.reset("rec-12345678");
   await store.register(segmentMeta({ rangeEnd: undefined }));
   await store.writeChunk(chunkEnvelope(0));
-  await store.register(segmentMeta({ rangeEnd: 4.5 }));
+  await store.register(
+    segmentMeta({ rangeEnd: 4.5, recordedDurationSec: 3.25 })
+  );
   await store.flushFrame("rec-12345678", "0");
 
   const result = await store.finalize("rec-12345678");
@@ -134,8 +137,33 @@ test("finalize closes writers and returns serializable groups", async () => {
   assert.equal(result.groups[0].length, 1);
   assert.equal(result.groups[0][0].bytes, 1);
   assert.equal(result.groups[0][0].rangeEnd, 4.5);
+  assert.equal(result.groups[0][0].recordedDurationSec, 3.25);
   assert.equal(result.flushedFrames[0], "0");
   assert.doesNotThrow(() => structuredClone(result));
+});
+
+test("WebM Cluster offsets are indexed while recorder chunks are written", async () => {
+  const directory = fakeDirectory();
+  const store = createRecordingStore({
+    getDirectory: async () => directory,
+    decodeBase64: base64ToBytes,
+  });
+  const cluster = new Uint8Array([
+    0x1f, 0x43, 0xb6, 0x75, 0x86, 0xe7, 0x81, 0x00, 0xa3, 0x81, 0x00,
+  ]);
+  await store.reset("rec-12345678");
+  await store.register(segmentMeta());
+  await store.writeChunk(
+    chunkEnvelope(0, {
+      base64: bytesToBase64(cluster),
+      byteLength: cluster.length,
+    })
+  );
+
+  const result = await store.finalize("rec-12345678");
+  assert.deepEqual(result.groups[0][0].webmIndex, [
+    { offset: 0, end: cluster.length, timecode: 0 },
+  ]);
 });
 
 test("messages for a different recording are rejected", async () => {

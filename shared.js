@@ -26,7 +26,6 @@ const MSG = {
   STOP_RECORDING: "STOP_RECORDING_V3",
   RECORDING_READY: "RECORDING_READY",
   RECORDING_FAILED: "RECORDING_FAILED",
-  FILL_PROGRESS: "FILL_PROGRESS",
   MERGE_SEGMENTS: "MERGE_SEGMENTS",
   STATE_CHANGED: "STATE_CHANGED",
   DEBUG_LOG: "DEBUG_LOG",
@@ -55,6 +54,38 @@ const STATUS = {
   STOPPING: "stopping",
 };
 
+function i18nMessage(key, fallback, substitutions) {
+  const values = Array.isArray(substitutions)
+    ? substitutions.map(String)
+    : substitutions === undefined
+      ? []
+      : [String(substitutions)];
+  const override = g.__vcI18nMessages && g.__vcI18nMessages[key];
+  if (typeof override === "string" && override) {
+    return applySubstitutions(override, values);
+  }
+  try {
+    const translated =
+      g.chrome &&
+      g.chrome.i18n &&
+      typeof g.chrome.i18n.getMessage === "function" &&
+      (values.length
+        ? g.chrome.i18n.getMessage(key, values)
+        : g.chrome.i18n.getMessage(key));
+    if (translated) return translated;
+  } catch {
+    // Page main-world scripts use the injected message map instead.
+  }
+  return applySubstitutions(fallback || key, values);
+}
+
+function applySubstitutions(message, values) {
+  return values.reduce(
+    (text, value, index) => text.replaceAll(`$${index + 1}`, value),
+    String(message || "")
+  );
+}
+
 function idleState(error, terminal) {
   return {
     status: STATUS.IDLE,
@@ -70,8 +101,6 @@ function idleState(error, terminal) {
     completedFrameIds: [],
     failedFrames: [],
     captureErrors: [],
-    fillHint: "",
-    fillRemain: 0,
     finalizing: false,
     result: "",
     resultMessage: "",
@@ -95,8 +124,8 @@ function terminalPresentation(state) {
     return {
       visible: true,
       tone: "success",
-      title: "已保存",
-      message: state.resultMessage || "视频已保存",
+      title: i18nMessage("resultSavedTitle", "已保存"),
+      message: state.resultMessage || i18nMessage("resultSaved", "视频已保存"),
       showLogs: false,
     };
   }
@@ -104,16 +133,21 @@ function terminalPresentation(state) {
     return {
       visible: true,
       tone: "warning",
-      title: "已部分保存",
-      message: state.resultMessage || "部分视频未能完成",
+      title: i18nMessage("resultPartialTitle", "已部分保存"),
+      message:
+        state.resultMessage ||
+        i18nMessage("resultPartial", "部分视频未能完成"),
       showLogs: false,
     };
   }
   return {
     visible: true,
     tone: "error",
-    title: "保存失败",
-    message: state.resultMessage || state.error || "没有可保存的录制内容",
+    title: i18nMessage("resultFailedTitle", "保存失败"),
+    message:
+      state.resultMessage ||
+      state.error ||
+      i18nMessage("noSavableRecording", "没有可保存的录制内容"),
     showLogs: true,
   };
 }
@@ -144,25 +178,6 @@ function rangeCovers(ranges, time) {
   );
 }
 
-function findGaps(ranges, from, to) {
-  if (!Number.isFinite(to) || to <= from) return [];
-  const merged = mergeRanges(ranges || []);
-  const gaps = [];
-  let cursor = from;
-  for (const item of merged) {
-    if (item.end <= cursor) continue;
-    if (item.start > cursor + RANGE_EPS) {
-      gaps.push({ start: cursor, end: Math.min(item.start, to) });
-    }
-    cursor = Math.max(cursor, item.end);
-    if (cursor >= to) break;
-  }
-  if (to - cursor > RANGE_EPS) {
-    gaps.push({ start: cursor, end: to });
-  }
-  return gaps.filter((item) => item.end - item.start >= MIN_RANGE_SECONDS);
-}
-
 function safeIdPart(value, maxLength = 128) {
   return String(value || "")
     .replace(/[^a-zA-Z0-9_-]/g, "_")
@@ -175,26 +190,32 @@ function validateRecordingId(value) {
 
 function makeScopedId(recordingId, frameKey, kind, localId) {
   if (!validateRecordingId(recordingId)) {
-    throw new Error("录制 ID 无效");
+    throw new Error(i18nMessage("invalidRecordingId", "录制 ID 无效"));
   }
   const safeFrame = safeIdPart(frameKey, 32);
   const safeKind = safeIdPart(kind, 24);
   const safeLocal = safeIdPart(localId, 96);
   if (!safeFrame || !safeKind || !safeLocal) {
-    throw new Error("录制分片 ID 无效");
+    throw new Error(i18nMessage("invalidSegmentId", "录制分片 ID 无效"));
   }
   return `${recordingId}:f${safeFrame}:${safeKind}:${safeLocal}`;
 }
 
 function validateChunkEnvelope(value) {
   if (!value || typeof value !== "object") {
-    return { ok: false, error: "录制分片消息无效" };
+    return {
+      ok: false,
+      error: i18nMessage("invalidChunkMessage", "录制分片消息无效"),
+    };
   }
   if (!validateRecordingId(value.recordingId)) {
-    return { ok: false, error: "录制 ID 无效" };
+    return {
+      ok: false,
+      error: i18nMessage("invalidRecordingId", "录制 ID 无效"),
+    };
   }
   if (!safeIdPart(value.frameKey, 32)) {
-    return { ok: false, error: "frame ID 无效" };
+    return { ok: false, error: i18nMessage("invalidFrameId", "frame ID 无效") };
   }
   if (
     typeof value.groupId !== "string" ||
@@ -204,24 +225,39 @@ function validateChunkEnvelope(value) {
     !value.segmentId.startsWith(`${value.recordingId}:`) ||
     value.segmentId.length > 320
   ) {
-    return { ok: false, error: "分组或分片 ID 无效" };
+    return {
+      ok: false,
+      error: i18nMessage("invalidGroupOrSegmentId", "分组或分片 ID 无效"),
+    };
   }
   if (!Number.isInteger(value.sequence) || value.sequence < 0) {
-    return { ok: false, error: "分片序号无效" };
+    return {
+      ok: false,
+      error: i18nMessage("invalidChunkSequence", "分片序号无效"),
+    };
   }
   if (
     !Number.isInteger(value.byteLength) ||
     value.byteLength <= 0 ||
     value.byteLength > MAX_CHUNK_BYTES
   ) {
-    return { ok: false, error: "录制分片过大或为空" };
+    return {
+      ok: false,
+      error: i18nMessage("chunkTooLargeOrEmpty", "录制分片过大或为空"),
+    };
   }
   if (typeof value.base64 !== "string" || !value.base64) {
-    return { ok: false, error: "录制分片数据无效" };
+    return {
+      ok: false,
+      error: i18nMessage("invalidChunkData", "录制分片数据无效"),
+    };
   }
   for (const key of ["rangeStart", "rangeEnd"]) {
     if (value[key] !== undefined && (!Number.isFinite(value[key]) || value[key] < 0)) {
-      return { ok: false, error: "录制时间范围无效" };
+      return {
+        ok: false,
+        error: i18nMessage("invalidRecordingRange", "录制时间范围无效"),
+      };
     }
   }
   if (
@@ -229,7 +265,10 @@ function validateChunkEnvelope(value) {
     Number.isFinite(value.rangeEnd) &&
     value.rangeEnd < value.rangeStart
   ) {
-    return { ok: false, error: "录制时间范围无效" };
+    return {
+      ok: false,
+      error: i18nMessage("invalidRecordingRange", "录制时间范围无效"),
+    };
   }
   return { ok: true };
 }
@@ -255,7 +294,8 @@ function nextFrameState(state, event) {
     failed.push({
       frameId,
       code: event.code || "FRAME_FAILED",
-      message: event.message || "frame 录制失败",
+      message:
+        event.message || i18nMessage("frameRecordingFailed", "frame 录制失败"),
     });
   } else {
     return { ...state, pendingFrameIds: pending, completedFrameIds: completed, failedFrames: failed };
@@ -381,7 +421,7 @@ function formatBadge(ms) {
     const seconds = total % 60;
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
-  return "REC";
+  return i18nMessage("recordBadge", "REC");
 }
 
 function bytesToBase64(bytes) {
@@ -439,11 +479,11 @@ function isRestrictedUrl(url) {
     MSG,
     TARGET,
     STATUS,
+    i18nMessage,
     idleState,
     terminalPresentation,
     mergeRanges,
     rangeCovers,
-    findGaps,
     safeIdPart,
     validateRecordingId,
     makeScopedId,
