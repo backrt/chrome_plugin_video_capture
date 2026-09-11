@@ -1,5 +1,8 @@
 # Firefox Add-ons（AMO）提交说明
 
+完整的五语言商店文案、审核说明、隐私政策和截图位于
+[`store-assets/firefox/`](../store-assets/firefox/README.md)。
+
 ## 构建与校验
 
 ```bash
