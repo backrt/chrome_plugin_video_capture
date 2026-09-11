@@ -6,8 +6,18 @@ const SESSION_KEY = "recorderState";
 const FRAME_TIMEOUT_MS = 120000;
 const DOWNLOAD_TIMEOUT_MS = 10 * 60 * 1000;
 const TIMEOUT_ALARM_PREFIX = "vc-frame-timeout:";
+const ICON_BLINK_INTERVAL_MS = 700;
+const DEFAULT_ACTION_ICON = Object.freeze({
+  16: "icons/icon16.png",
+  48: "icons/icon48.png",
+  128: "icons/icon128.png",
+});
+const RECORDING_ACTION_ICON = "icons/icon-recording-dim.svg";
 
 let badgeTimer = null;
+let iconBlinkTimer = null;
+let iconBlinkGeneration = 0;
+let iconBlinkDimmed = false;
 let finalizePromise = null;
 const transientStorage = chrome.storage.session || chrome.storage.local;
 const keepAlivePorts = new Set();
@@ -175,6 +185,7 @@ async function stopRecording() {
     finalizing: false,
   };
   await setState(state);
+  stopIconBlink();
   for (const frameId of state.pendingFrameIds || []) {
     state = await coordinator.heartbeat({
       recordingId: state.recordingId,
@@ -319,6 +330,7 @@ async function runFinalizeAndDownload(recordingId) {
     finalizing: true,
   };
   await setState(state);
+  stopIconBlink();
   await broadcastState(state);
 
   const errors = [
@@ -734,12 +746,45 @@ function startBadge(startTime) {
   };
   tick();
   badgeTimer = setInterval(tick, 1000);
+  startIconBlink();
 }
 
 function stopBadge() {
   if (badgeTimer) clearInterval(badgeTimer);
   badgeTimer = null;
   chrome.action.setBadgeText({ text: "" });
+  stopIconBlink();
+}
+
+function startIconBlink() {
+  stopIconBlink();
+  const generation = iconBlinkGeneration;
+  const tick = async () => {
+    if (generation !== iconBlinkGeneration) return;
+    iconBlinkDimmed = !iconBlinkDimmed;
+    await setActionIcon(iconBlinkDimmed);
+    if (generation !== iconBlinkGeneration) return;
+    iconBlinkTimer = setTimeout(tick, ICON_BLINK_INTERVAL_MS);
+  };
+  iconBlinkTimer = setTimeout(tick, ICON_BLINK_INTERVAL_MS);
+}
+
+function stopIconBlink() {
+  iconBlinkGeneration += 1;
+  if (iconBlinkTimer) clearTimeout(iconBlinkTimer);
+  iconBlinkTimer = null;
+  iconBlinkDimmed = false;
+  setActionIcon(false);
+}
+
+async function setActionIcon(dimmed) {
+  try {
+    await chrome.action.setIcon({
+      path: dimmed ? RECORDING_ACTION_ICON : DEFAULT_ACTION_ICON,
+    });
+  } catch {
+    // Keep recording functional even if the browser rejects an icon update.
+  }
 }
 
 async function resetUi() {

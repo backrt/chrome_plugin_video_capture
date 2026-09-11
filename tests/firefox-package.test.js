@@ -29,6 +29,7 @@ test("Firefox package contains only runtime files using the browser namespace", 
   assert.ok(names.includes("manifest.json"));
   assert.ok(names.includes("background.js"));
   assert.ok(names.includes("icons/icon128.png"));
+  assert.ok(names.includes("icons/icon-recording-dim.svg"));
   assert.equal(names.includes("offscreen.html"), false);
   assert.equal(names.some((name) => name.startsWith("tests/")), false);
   assert.equal(names.some((name) => name.startsWith("docs/")), false);
@@ -53,6 +54,18 @@ test("Firefox background lifecycle is protected during recording", () => {
     /__videoCaptureInlineOffscreenV1 = handleOffscreenRequest/
   );
   assert.match(background, /await globalThis\.__videoCaptureInlineOffscreenV1/);
+});
+
+test("Firefox toolbar icon blinks only while recording", () => {
+  const background = fs.readFileSync("background.js", "utf8");
+
+  assert.match(background, /ICON_BLINK_INTERVAL_MS = 700/);
+  assert.match(background, /function startIconBlink\(\)/);
+  assert.match(background, /function stopIconBlink\(\)/);
+  assert.match(background, /chrome\.action\.setIcon/);
+  assert.match(background, /RECORDING_ACTION_ICON/);
+  assert.match(background, /startBadge[\s\S]*startIconBlink\(\)/);
+  assert.match(background, /stopBadge[\s\S]*stopIconBlink\(\)/);
 });
 
 test("ZIP helper produces deterministic Firefox submission data", async () => {
