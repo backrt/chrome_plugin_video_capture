@@ -4,7 +4,6 @@
   "version": "1.6.0",
   "description": "__MSG_appDescription__",
   "default_locale": "zh_CN",
-  "minimum_chrome_version": "116",
   "action": {
     "default_popup": "popup.html",
     "default_title": "__MSG_appName__",
@@ -20,11 +19,17 @@
     "128": "icons/icon128.png"
   },
   "background": {
-    "service_worker": "background.js"
+    "scripts": [
+      "shared.js",
+      "webm-concat.js",
+      "offscreen-store.js",
+      "offscreen.js",
+      "recording-coordinator.js",
+      "background.js"
+    ]
   },
   "permissions": [
     "scripting",
-    "offscreen",
     "downloads",
     "alarms",
     "activeTab",
@@ -33,5 +38,14 @@
   "host_permissions": [
     "http://*/*",
     "https://*/*"
-  ]
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "video-recorder@backrt.github.io",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
 }

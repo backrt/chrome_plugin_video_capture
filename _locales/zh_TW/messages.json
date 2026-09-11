@@ -104,5 +104,7 @@
   "ebmlSizeOutOfRange": { "message": "EBML 長度超出範圍" },
   "invalidEbmlInteger": { "message": "EBML 整數無效" },
   "ebmlIntegerOutOfRange": { "message": "EBML 整數超出範圍" },
-  "invalidWebmBytes": { "message": "WebM 位元組資料無效" }
+  "invalidWebmBytes": { "message": "WebM 位元組資料無效" },
+  "offscreenUnsupported": { "message": "目前的瀏覽器版本不支援背景影片處理，請升級瀏覽器後再試" },
+  "opfsUnsupported": { "message": "目前的瀏覽器版本不支援本機錄製快取，請升級瀏覽器後再試" }
 }

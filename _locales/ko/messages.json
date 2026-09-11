@@ -104,5 +104,7 @@
   "ebmlSizeOutOfRange": { "message": "EBML 크기가 범위를 벗어났습니다" },
   "invalidEbmlInteger": { "message": "잘못된 EBML 정수입니다" },
   "ebmlIntegerOutOfRange": { "message": "EBML 정수가 범위를 벗어났습니다" },
-  "invalidWebmBytes": { "message": "잘못된 WebM 바이트 데이터입니다" }
+  "invalidWebmBytes": { "message": "잘못된 WebM 바이트 데이터입니다" },
+  "offscreenUnsupported": { "message": "이 브라우저 버전은 백그라운드 동영상 처리를 지원하지 않습니다. 브라우저를 업데이트한 후 다시 시도하세요." },
+  "opfsUnsupported": { "message": "이 브라우저 버전은 로컬 녹화 저장소를 지원하지 않습니다. 브라우저를 업데이트한 후 다시 시도하세요." }
 }

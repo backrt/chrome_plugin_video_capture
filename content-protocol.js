@@ -121,6 +121,13 @@
     if (ArrayBuffer.isView(buffer)) {
       return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     }
+    if (Object.prototype.toString.call(buffer) === "[object ArrayBuffer]") {
+      try {
+        return new Uint8Array(buffer);
+      } catch {
+        return null;
+      }
+    }
     return null;
   }
 

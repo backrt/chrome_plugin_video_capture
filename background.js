@@ -1,4 +1,6 @@
-importScripts("shared.js", "recording-coordinator.js");
+if (typeof importScripts === "function") {
+  importScripts("shared.js", "recording-coordinator.js");
+}
 
 const SESSION_KEY = "recorderState";
 const FRAME_TIMEOUT_MS = 120000;
@@ -7,7 +9,8 @@ const TIMEOUT_ALARM_PREFIX = "vc-frame-timeout:";
 
 let badgeTimer = null;
 let finalizePromise = null;
-let offscreenCreatingPromise = null;
+const transientStorage = chrome.storage.session || chrome.storage.local;
+const keepAlivePorts = new Set();
 
 const coordinator = createRecordingCoordinator({
   loadState: getState,
@@ -32,6 +35,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
     return true;
   }
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== "video-capture-recording") return;
+  keepAlivePorts.add(port);
+  port.onDisconnect.addListener(() => keepAlivePorts.delete(port));
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -86,7 +95,7 @@ async function startRecording(tabId) {
     throw new Error(i18nMessage("activeTabMissing", "找不到当前标签页"));
   }
 
-  await chrome.storage.session.set({ [DEBUG_LOG_KEY]: [] });
+  await transientStorage.set({ [DEBUG_LOG_KEY]: [] });
   const recordingId = crypto.randomUUID();
   const bridgeToken = crypto.randomUUID();
   await debugLog("sw", "start-requested", { tabId, recordingId });
@@ -578,28 +587,19 @@ async function openDownloadFolder() {
 }
 
 async function ensureOffscreen() {
-  const existing = await chrome.runtime.getContexts({
-    contextTypes: ["OFFSCREEN_DOCUMENT"],
-    documentUrls: [chrome.runtime.getURL("offscreen.html")],
-  });
-  if (existing.length) return;
-  if (!offscreenCreatingPromise) {
-    offscreenCreatingPromise = chrome.offscreen
-      .createDocument({
-        url: "offscreen.html",
-        reasons: ["BLOBS"],
-        justification: "Persist recording chunks and create download URLs",
-      })
-      .finally(() => {
-        offscreenCreatingPromise = null;
-      });
+  if (typeof globalThis.__videoCaptureInlineOffscreenV1 !== "function") {
+    throw new Error(
+      i18nMessage(
+        "offscreenUnsupported",
+        "当前浏览器版本不支持后台视频处理，请升级浏览器后重试"
+      )
+    );
   }
-  await offscreenCreatingPromise;
 }
 
 async function requireOffscreen(payload) {
   await ensureOffscreen();
-  const response = await chrome.runtime.sendMessage({
+  const response = await globalThis.__videoCaptureInlineOffscreenV1({
     ...payload,
     target: TARGET.OFFSCREEN,
   });
@@ -613,19 +613,17 @@ async function requireOffscreen(payload) {
 }
 
 async function sendToExistingOffscreen(payload) {
-  return chrome.runtime.sendMessage({ ...payload, target: TARGET.OFFSCREEN });
+  if (typeof globalThis.__videoCaptureInlineOffscreenV1 !== "function") {
+    return undefined;
+  }
+  return globalThis.__videoCaptureInlineOffscreenV1({
+    ...payload,
+    target: TARGET.OFFSCREEN,
+  });
 }
 
 async function closeOffscreen() {
-  try {
-    const existing = await chrome.runtime.getContexts({
-      contextTypes: ["OFFSCREEN_DOCUMENT"],
-      documentUrls: [chrome.runtime.getURL("offscreen.html")],
-    });
-    if (existing.length) await chrome.offscreen.closeDocument();
-  } catch {
-    // The document may already be closed.
-  }
+  // Firefox keeps the storage processor in the same background document.
 }
 
 function waitForDownload(downloadId) {
@@ -685,14 +683,14 @@ async function debugLog(scope, message, extra) {
     extra: extra || null,
   };
   console.log("[VideoCapture]", scope, message, extra || "");
-  const stored = await chrome.storage.session.get(DEBUG_LOG_KEY);
+  const stored = await transientStorage.get(DEBUG_LOG_KEY);
   const logs = stored[DEBUG_LOG_KEY] || [];
   logs.push(line);
-  await chrome.storage.session.set({ [DEBUG_LOG_KEY]: logs.slice(-100) });
+  await transientStorage.set({ [DEBUG_LOG_KEY]: logs.slice(-100) });
 }
 
 async function getLogs() {
-  const stored = await chrome.storage.session.get(DEBUG_LOG_KEY);
+  const stored = await transientStorage.get(DEBUG_LOG_KEY);
   return stored[DEBUG_LOG_KEY] || [];
 }
 
@@ -704,12 +702,12 @@ async function finishIdle(error, terminal) {
 }
 
 async function getState() {
-  const stored = await chrome.storage.session.get(SESSION_KEY);
+  const stored = await transientStorage.get(SESSION_KEY);
   return stored[SESSION_KEY] || idleState();
 }
 
 async function setState(state) {
-  await chrome.storage.session.set({ [SESSION_KEY]: state });
+  await transientStorage.set({ [SESSION_KEY]: state });
 }
 
 async function broadcastState(state) {

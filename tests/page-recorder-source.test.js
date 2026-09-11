@@ -11,3 +11,8 @@ test("recording pipeline has no automatic gap filling", () => {
   );
   assert.doesNotMatch(source, /fillHint|fillRemain|session\.filling/);
 });
+
+test("page-to-content chunks are cloned instead of transferred across Firefox realms", () => {
+  const source = fs.readFileSync("page-recorder.js", "utf8");
+  assert.doesNotMatch(source, /postToIsolated\([\s\S]*?"CHUNK"[\s\S]*?\[buffer\]/);
+});

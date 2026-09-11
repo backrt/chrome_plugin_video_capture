@@ -1,27 +1,34 @@
 let objectUrl = null;
 
 const recordingStore = createRecordingStore({
-  getDirectory: () => navigator.storage.getDirectory(),
+  getDirectory: getStorageDirectory,
   decodeBase64: base64ToBytes,
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.target && message.target !== TARGET.OFFSCREEN) return;
 
-  const task = handleMessage(message);
+  const task = handleOffscreenRequest(message);
   if (task) {
-    task
-      .then((result) => sendResponse({ ok: true, ...(result || {}) }))
-      .catch((error) => {
-        sendResponse({
-          ok: false,
-          code: error.code || "OFFSCREEN_ERROR",
-          error: error.message || String(error),
-        });
-      });
+    task.then(sendResponse);
     return true;
   }
 });
+
+globalThis.__videoCaptureInlineOffscreenV1 = handleOffscreenRequest;
+
+async function handleOffscreenRequest(message) {
+  try {
+    const result = await handleMessage(message);
+    return { ok: true, ...(result || {}) };
+  } catch (error) {
+    return {
+      ok: false,
+      code: error.code || "OFFSCREEN_ERROR",
+      error: error.message || String(error),
+    };
+  }
+}
 
 async function handleMessage(message) {
   switch (message.type) {
@@ -55,7 +62,7 @@ async function handleMessage(message) {
 
 async function createDownloadUrl(mimeType, opfsName) {
   revoke();
-  const root = await navigator.storage.getDirectory();
+  const root = await getStorageDirectory();
   const handle = await root.getFileHandle(opfsName);
   const file = await handle.getFile();
   if (!file.size) throw new Error(i18nMessage("cachedFileEmpty", "缓存文件为空"));
@@ -78,7 +85,7 @@ async function mergeSegments(message) {
     throw new Error(i18nMessage("mp4MergeUnsupported", "不支持拼接 MP4 分片"));
   }
 
-  const root = await navigator.storage.getDirectory();
+  const root = await getStorageDirectory();
   const sources = [];
   for (const part of parts) {
     const handle = await root.getFileHandle(part.opfsName);
@@ -130,4 +137,16 @@ function revoke() {
   if (!objectUrl) return;
   URL.revokeObjectURL(objectUrl);
   objectUrl = null;
+}
+
+function getStorageDirectory() {
+  if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") {
+    throw new Error(
+      i18nMessage(
+        "opfsUnsupported",
+        "当前浏览器版本不支持本地录制缓存，请升级浏览器后重试"
+      )
+    );
+  }
+  return navigator.storage.getDirectory();
 }

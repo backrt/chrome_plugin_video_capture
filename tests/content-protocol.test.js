@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const vm = require("node:vm");
 
 require("../shared.js");
 require("../content-protocol.js");
@@ -150,6 +151,25 @@ test("one chunk larger than the bridge limit is rejected before send", async () 
   const tooLarge = { ...chunk(), buffer: new Uint8Array(MAX_CHUNK_BYTES + 1) };
   await assert.rejects(protocol.chunk(tooLarge), /过大/);
   assert.equal(calls, 0);
+});
+
+test("Firefox cross-realm ArrayBuffer is accepted as a recording chunk", async () => {
+  const sent = [];
+  const protocol = createFrameProtocol(
+    options("0", async (message) => {
+      sent.push(message);
+      return { ok: true };
+    })
+  );
+  const foreignBuffer = vm.runInNewContext(
+    "Uint8Array.from([7, 8, 9]).buffer"
+  );
+
+  await protocol.chunk({ ...chunk(), buffer: foreignBuffer });
+
+  const write = sent.find((message) => message.type === MSG.WRITE_CHUNK);
+  assert.equal(write.byteLength, 3);
+  assert.equal(write.base64, "BwgJ");
 });
 
 test("drain waits for all queued registration acknowledgements", async () => {

@@ -40,7 +40,7 @@
     }
   });
 
-  function postToIsolated(type, extra, transfer) {
+  function postToIsolated(type, extra) {
     window.postMessage(
       {
         channel: PIPE,
@@ -49,8 +49,7 @@
         type,
         ...extra,
       },
-      "*",
-      transfer || []
+      "*"
     );
   }
 
@@ -382,8 +381,7 @@
               rangeStart: session.rangeStart,
               buffer,
               size: buffer.byteLength,
-            },
-            [buffer]
+            }
           );
         })
         .catch((error) => {

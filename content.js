@@ -27,6 +27,7 @@
   let frameKey = "";
   let bridgeToken = "";
   let protocolError = null;
+  let keepAlivePort = null;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.target && message.target !== T.CONTENT) return;
@@ -125,6 +126,7 @@
     if (!validateRecordingId(recordingId) || !frameKey || !bridgeToken) {
       throw new Error(i18nMessage("invalidBridgeParams", "录制桥接参数无效"));
     }
+    keepAlivePort = chrome.runtime.connect({ name: "video-capture-recording" });
     protocol = createFrameProtocol({
       recordingId,
       frameKey,
@@ -174,7 +176,8 @@
             error: error.message || i18nMessage("stopFailed", "停止失败"),
           })
           .catch(() => {});
-      });
+      })
+      .finally(resetBridge);
     return { ok: true };
   }
 
@@ -277,6 +280,14 @@
   }
 
   function resetBridge() {
+    if (keepAlivePort) {
+      try {
+        keepAlivePort.disconnect();
+      } catch {
+        // The page or background context may already be gone.
+      }
+      keepAlivePort = null;
+    }
     pendingStart = null;
     pendingStop = null;
     protocol = null;
