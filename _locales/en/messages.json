@@ -104,5 +104,7 @@
   "ebmlSizeOutOfRange": { "message": "EBML size is out of range" },
   "invalidEbmlInteger": { "message": "Invalid EBML integer" },
   "ebmlIntegerOutOfRange": { "message": "EBML integer is out of range" },
-  "invalidWebmBytes": { "message": "Invalid WebM byte data" }
+  "invalidWebmBytes": { "message": "Invalid WebM byte data" },
+  "offscreenUnsupported": { "message": "This browser version does not support background video processing. Update the browser and try again." },
+  "opfsUnsupported": { "message": "This browser version does not support local recording storage. Update the browser and try again." }
 }

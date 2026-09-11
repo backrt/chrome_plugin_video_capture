@@ -104,5 +104,7 @@
   "ebmlSizeOutOfRange": { "message": "EBML 长度超出范围" },
   "invalidEbmlInteger": { "message": "EBML 整数无效" },
   "ebmlIntegerOutOfRange": { "message": "EBML 整数超出范围" },
-  "invalidWebmBytes": { "message": "WebM 字节数据无效" }
+  "invalidWebmBytes": { "message": "WebM 字节数据无效" },
+  "offscreenUnsupported": { "message": "当前浏览器版本不支持后台视频处理，请升级浏览器后重试" },
+  "opfsUnsupported": { "message": "当前浏览器版本不支持本地录制缓存，请升级浏览器后重试" }
 }

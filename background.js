@@ -8,6 +8,7 @@ const TIMEOUT_ALARM_PREFIX = "vc-frame-timeout:";
 let badgeTimer = null;
 let finalizePromise = null;
 let offscreenCreatingPromise = null;
+const transientStorage = chrome.storage.session || chrome.storage.local;
 
 const coordinator = createRecordingCoordinator({
   loadState: getState,
@@ -86,7 +87,7 @@ async function startRecording(tabId) {
     throw new Error(i18nMessage("activeTabMissing", "找不到当前标签页"));
   }
 
-  await chrome.storage.session.set({ [DEBUG_LOG_KEY]: [] });
+  await transientStorage.set({ [DEBUG_LOG_KEY]: [] });
   const recordingId = crypto.randomUUID();
   const bridgeToken = crypto.randomUUID();
   await debugLog("sw", "start-requested", { tabId, recordingId });
@@ -578,10 +579,15 @@ async function openDownloadFolder() {
 }
 
 async function ensureOffscreen() {
-  const existing = await chrome.runtime.getContexts({
-    contextTypes: ["OFFSCREEN_DOCUMENT"],
-    documentUrls: [chrome.runtime.getURL("offscreen.html")],
-  });
+  if (!chrome.offscreen || typeof chrome.offscreen.createDocument !== "function") {
+    throw new Error(
+      i18nMessage(
+        "offscreenUnsupported",
+        "当前浏览器版本不支持后台视频处理，请升级浏览器后重试"
+      )
+    );
+  }
+  const existing = await getOffscreenContexts();
   if (existing.length) return;
   if (!offscreenCreatingPromise) {
     offscreenCreatingPromise = chrome.offscreen
@@ -618,14 +624,28 @@ async function sendToExistingOffscreen(payload) {
 
 async function closeOffscreen() {
   try {
-    const existing = await chrome.runtime.getContexts({
-      contextTypes: ["OFFSCREEN_DOCUMENT"],
-      documentUrls: [chrome.runtime.getURL("offscreen.html")],
-    });
+    const existing = await getOffscreenContexts();
     if (existing.length) await chrome.offscreen.closeDocument();
   } catch {
     // The document may already be closed.
   }
+}
+
+async function getOffscreenContexts() {
+  const documentUrl = chrome.runtime.getURL("offscreen.html");
+  if (typeof chrome.runtime.getContexts === "function") {
+    return chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+      documentUrls: [documentUrl],
+    });
+  }
+  if (typeof self !== "undefined" && self.clients?.matchAll) {
+    const clients = await self.clients.matchAll({
+      includeUncontrolled: true,
+    });
+    return clients.filter((client) => client.url === documentUrl);
+  }
+  return [];
 }
 
 function waitForDownload(downloadId) {
@@ -685,14 +705,14 @@ async function debugLog(scope, message, extra) {
     extra: extra || null,
   };
   console.log("[VideoCapture]", scope, message, extra || "");
-  const stored = await chrome.storage.session.get(DEBUG_LOG_KEY);
+  const stored = await transientStorage.get(DEBUG_LOG_KEY);
   const logs = stored[DEBUG_LOG_KEY] || [];
   logs.push(line);
-  await chrome.storage.session.set({ [DEBUG_LOG_KEY]: logs.slice(-100) });
+  await transientStorage.set({ [DEBUG_LOG_KEY]: logs.slice(-100) });
 }
 
 async function getLogs() {
-  const stored = await chrome.storage.session.get(DEBUG_LOG_KEY);
+  const stored = await transientStorage.get(DEBUG_LOG_KEY);
   return stored[DEBUG_LOG_KEY] || [];
 }
 
@@ -704,12 +724,12 @@ async function finishIdle(error, terminal) {
 }
 
 async function getState() {
-  const stored = await chrome.storage.session.get(SESSION_KEY);
+  const stored = await transientStorage.get(SESSION_KEY);
   return stored[SESSION_KEY] || idleState();
 }
 
 async function setState(state) {
-  await chrome.storage.session.set({ [SESSION_KEY]: state });
+  await transientStorage.set({ [SESSION_KEY]: state });
 }
 
 async function broadcastState(state) {

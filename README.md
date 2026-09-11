@@ -1,22 +1,22 @@
 # 视频录制机
 
-一个无服务器、无运行时第三方依赖的 Chrome Manifest V3 扩展。它使用 `video.captureStream()` 和 `MediaRecorder` 录制当前页面中用户实际播放的 HTML `<video>` 内容，而不是录制整个标签页。
+一个无服务器、无运行时第三方依赖的 Chrome / Microsoft Edge Manifest V3 扩展。它使用 `video.captureStream()` 和 `MediaRecorder` 录制当前页面中用户实际播放的 HTML `<video>` 内容，而不是录制整个标签页。
 
 录制数据只在浏览器本地流转：页面录制器生成分片，Content Script 按顺序发送到 Offscreen Document，Offscreen 将分片写入 OPFS，停止后再通过 `chrome.downloads` 保存到下载目录。
 
 ## 安装
 
-1. 打开 `chrome://extensions`。
+1. Chrome 打开 `chrome://extensions`；Edge 打开 `edge://extensions`。
 2. 开启右上角“开发者模式”。
 3. 点击“加载已解压的扩展程序”。
 4. 选择本项目目录。
 5. 打开包含 HTML `<video>` 的普通网页，点击扩展图标。
 
-最低支持 Chrome 116。
+最低支持 Chrome 116；Microsoft Edge 建议使用 116 或更高版本。
 
 ## 支持语言
 
-界面会跟随 Chrome 的显示语言自动切换，当前提供：
+界面会跟随浏览器的显示语言自动切换，当前提供：
 
 - 中文（简体）
 - 中文（繁體）
@@ -24,7 +24,7 @@
 - 日本語
 - 한국어
 
-Chrome 无法匹配当前语言时使用简体中文。
+浏览器无法匹配当前语言时使用简体中文。
 
 ## 使用
 
@@ -49,9 +49,12 @@ Chrome 无法匹配当前语言时使用简体中文。
 ```bash
 npm test
 npm run check
+npm run build:edge
 ```
 
-`npm test` 使用 Node 内置的 `node:test`。`npm run check` 还会检查全部 JavaScript 文件的语法。
+`npm test` 使用 Node 内置的 `node:test`。`npm run check` 还会检查全部 JavaScript 文件的语法。`npm run build:edge` 会校验清单与远程脚本限制，并在 `dist/` 生成只包含扩展运行文件的 Edge Add-ons 提交 ZIP。
+
+Edge 与 Chrome 的扩展 API 基本代码兼容，所以运行时代码继续使用 `chrome.*` 命名空间。Edge 提审字段、权限说明和侧载验收步骤见 [`docs/edge-store-submission.md`](docs/edge-store-submission.md)。
 
 ## 架构
 
@@ -66,7 +69,7 @@ npm run check
 ## 已知限制
 
 - 不能绕过 DRM、受保护的跨域媒体或浏览器安全限制；结果可能是拒绝录制、黑屏或无声。
-- `captureStream()` 不是所有浏览器都支持，本项目只面向 Chromium/Chrome。
+- `captureStream()` 不是所有浏览器都支持，本项目只面向支持所需 API 的 Chromium、Chrome 和 Microsoft Edge 版本。
 - 只录制用户实际播放的区间；暂停或拖动跳过的内容不会被自动补录。
 - 停止保存不会自动播放视频，也不会修改播放位置、音量、倍速或静音状态。
 - 关闭整个浏览器会中止正在进行的录制；重新启动时会清理未完成的本地临时文件。
@@ -84,7 +87,7 @@ npm run check
 - [ ] 录制期间动态插入的视频能被捕获。
 - [ ] 拖动跳过的区间不会出现在成品中。
 - [ ] 停止保存不会改变页面视频的位置、音量、倍速或静音状态。
-- [ ] 下载的 WebM 能显示正确时长，并能在 Chrome 和 VLC 中拖动进度条定位。
+- [ ] 下载的 WebM 能显示正确时长，并能在 Chrome、Edge 和 VLC 中拖动进度条定位。
 - [ ] DRM/受保护媒体给出明确失败或部分失败提示。
 - [ ] 连续执行多次多分片录制后，OPFS 中不残留 `recording-*` 或 `merged-*` 文件。
 

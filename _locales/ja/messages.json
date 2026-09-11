@@ -104,5 +104,7 @@
   "ebmlSizeOutOfRange": { "message": "EBML サイズが範囲外です" },
   "invalidEbmlInteger": { "message": "EBML 整数が無効です" },
   "ebmlIntegerOutOfRange": { "message": "EBML 整数が範囲外です" },
-  "invalidWebmBytes": { "message": "WebM バイトデータが無効です" }
+  "invalidWebmBytes": { "message": "WebM バイトデータが無効です" },
+  "offscreenUnsupported": { "message": "このブラウザのバージョンはバックグラウンド動画処理に対応していません。ブラウザを更新して再試行してください。" },
+  "opfsUnsupported": { "message": "このブラウザのバージョンはローカル録画ストレージに対応していません。ブラウザを更新して再試行してください。" }
 }

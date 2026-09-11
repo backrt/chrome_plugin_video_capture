@@ -1,7 +1,17 @@
 let objectUrl = null;
 
 const recordingStore = createRecordingStore({
-  getDirectory: () => navigator.storage.getDirectory(),
+  getDirectory: () => {
+    if (!navigator.storage || typeof navigator.storage.getDirectory !== "function") {
+      throw new Error(
+        i18nMessage(
+          "opfsUnsupported",
+          "当前浏览器版本不支持本地录制缓存，请升级浏览器后重试"
+        )
+      );
+    }
+    return navigator.storage.getDirectory();
+  },
   decodeBase64: base64ToBytes,
 });
 
